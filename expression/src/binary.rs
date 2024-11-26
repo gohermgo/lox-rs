@@ -3,17 +3,12 @@ use core::{
     fmt,
     ops::{Add, Div, Mul, Sub},
 };
+type BinaryMap<A, B, Output> =
+    dyn Fn(<A as Expression>::Output, <B as Expression>::Output) -> Option<Output>;
 pub trait BinaryOperator: OperatorNode {
     type A: Expression;
     type B: Expression;
-    fn identity(
-        &self,
-    ) -> Box<
-        dyn Fn(
-            <Self::A as Expression>::Output,
-            <Self::B as Expression>::Output,
-        ) -> Option<<Self as OperatorNode>::Output>,
-    >;
+    fn identity(&self) -> Box<BinaryMap<Self::A, Self::B, <Self as OperatorNode>::Output>>;
     fn express(
         self,
         a: Self::A,
@@ -76,9 +71,10 @@ impl OperatorNode for ArithmeticOperator {
     type Output = Node;
 }
 impl Add<Value> for Node {
-    type Output = Node;
+    type Output = Option<Value>;
     fn add(self, rhs: Value) -> Self::Output {
-        Node::binary(ArithmeticOperator::Plus.express(self, Node::Literal(rhs)))
+        self.eval().and_then(|a| a.add(rhs))
+        // Node::binary(ArithmeticOperator::Plus.express(self, Node::Literal(rhs)))
     }
 }
 impl BinaryOperator for ArithmeticOperator {
@@ -150,8 +146,8 @@ impl BinaryOperator for EqualityOperator {
         ) -> Option<Self::Output>,
     > {
         match self {
-            Self::Eq => Box::new(|a, b| Some(a.eq(&b)).map(Value::Boolean).map(Node::Literal)),
-            Self::Ne => Box::new(|a, b| Some(a.ne(&b)).map(Value::Boolean).map(Node::Literal)),
+            Self::Eq => Box::new(|a, b| Some(Value::Boolean(a.eq(&b)).into())),
+            Self::Ne => Box::new(|a, b| Some(Value::Boolean(a.ne(&b)).into())),
         }
     }
 }
@@ -227,18 +223,10 @@ impl BinaryOperator for OrderingOperatorNode {
         ) -> Option<Self::Output>,
     > {
         match self {
-            Self::Lt { equal: true } => {
-                Box::new(|a, b| Some(a.le(&b)).map(Value::Boolean).map(Node::Literal))
-            }
-            Self::Lt { equal: false } => {
-                Box::new(|a, b| Some(a.lt(&b)).map(Value::Boolean).map(Node::Literal))
-            }
-            Self::Gt { equal: true } => {
-                Box::new(|a, b| Some(a.ge(&b)).map(Value::Boolean).map(Node::Literal))
-            }
-            Self::Gt { equal: false } => {
-                Box::new(|a, b| Some(a.gt(&b)).map(Value::Boolean).map(Node::Literal))
-            }
+            Self::Lt { equal: true } => Box::new(|a, b| Some(Value::Boolean(a.le(&b)).into())),
+            Self::Lt { equal: false } => Box::new(|a, b| Some(Value::Boolean(a.lt(&b)).into())),
+            Self::Gt { equal: true } => Box::new(|a, b| Some(Value::Boolean(a.ge(&b)).into())),
+            Self::Gt { equal: false } => Box::new(|a, b| Some(Value::Boolean(a.gt(&b)).into())),
         }
     }
 }

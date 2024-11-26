@@ -51,7 +51,7 @@ impl Add for Node {
         if let Node::Literal(v) = self {
             v.add(rhs)
         } else {
-            self.eval().and_then(|a| a.add(rhs)).into()
+            self.eval().and_then(|a| a.add(rhs))
             // self.eval()
             //     .map(Node::Literal)
             //     .map(|a| ArithmeticOperator::Plus.express(a, rhs).into())
