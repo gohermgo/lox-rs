@@ -1,0 +1,1 @@
+impl FnOnce(<<ArithmeticOperator as BinaryOperatorKey>::A as Expression>::Output, <<ArithmeticOperator as BinaryOperatorKey>::B as Expression>::Output) -> <ArithmeticOperator as BinaryOperatorKey>::Output + 'static
