@@ -1,1 +1,0 @@
-Box<(dyn BinaryNodeOperator<A = Box<<Self as BinaryNodeOperator>::A>, B = Box<<Self as BinaryNodeOperator>::B>, Output = <Self as BinaryNodeOperator>::Output> + 'static)>
