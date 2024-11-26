@@ -1,0 +1,5 @@
+[workspace]
+members = [ "cli", "convert", "expression","parser", "scanner", "token"]
+[workspace.dependencies]
+token = { path = "./token" }
+convert = { path = "./convert"}
