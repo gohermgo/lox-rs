@@ -3,6 +3,10 @@ use core::{
     fmt,
     ops::{Neg, Not},
 };
+#[cfg(not(test))]
+use log::trace;
+#[cfg(test)]
+use println as trace;
 pub trait UnaryNodeOperator: OperatorNode {
     type A: Expression;
     fn identity(
@@ -62,9 +66,10 @@ where
 {
     type Output = Output;
     fn eval(&self) -> Option<Self::Output> {
-        println!("Evaluating UnaryExpression {self:?}");
-        self.operand
-            .eval()
-            .and_then(|a| self.operator.identity()(a))
+        self.operand.eval().and_then(|a| {
+            let res = self.operator.identity()(a);
+            trace!("Evaluated {self:?} to {res:?}");
+            res
+        })
     }
 }
