@@ -8,6 +8,10 @@ type BinaryMap<A, B, Output> =
 pub trait BinaryOperator: OperatorNode {
     type A: Expression;
     type B: Expression;
+    fn try_call(&self, a: Self::A, b: Self::B) -> Option<<Self as OperatorNode>::Output> {
+        a.eval()
+            .and_then(|a| b.eval().and_then(|b| self.identity()(a, b)))
+    }
     fn identity(&self) -> Box<BinaryMap<Self::A, Self::B, <Self as OperatorNode>::Output>>;
     fn express(
         self,
@@ -40,7 +44,11 @@ where
 }
 impl From<BinaryExpression<Node, Node, Node>> for Node {
     fn from(value: BinaryExpression<Node, Node, Node>) -> Self {
-        Node::Binary(Box::new(value))
+        Node::Binary {
+            operand_a: Box::new(value.operand_a),
+            operand_b: Box::new(value.operand_b),
+            operator: value.operator,
+        }
     }
 }
 impl<A, B, Out> Expression for BinaryExpression<A, B, Out>

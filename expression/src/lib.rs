@@ -124,7 +124,11 @@ impl PartialEq for Node {
 pub enum Node {
     Literal(literal::Value),
     Unary(Box<UnaryExpression<Node, Node>>),
-    Binary(Box<BinaryExpression<Node, Node, Node>>),
+    Binary {
+        operand_a: Box<Node>,
+        operand_b: Box<Node>,
+        operator: Box<dyn BinaryOperator<A = Node, B = Node, Output = Node>>,
+    },
     Grouping(Box<Node>),
 }
 impl fmt::Debug for Node {
@@ -132,7 +136,16 @@ impl fmt::Debug for Node {
         match self {
             Self::Literal(v) => f.debug_tuple("LiteralExpression").field(v).finish(),
             Self::Unary(u) => f.write_fmt(format_args!("{u:?}")),
-            Self::Binary(b) => f.write_fmt(format_args!("{b:?}")),
+            Self::Binary {
+                operand_a,
+                operand_b,
+                operator,
+            } => f
+                .debug_struct("Binary")
+                .field("A", &operand_a)
+                .field("B", &operand_b)
+                .field("Operator", &operator)
+                .finish(),
             Self::Grouping(e) => f.debug_tuple("GroupingExpression").field(e).finish(),
         }
     }
@@ -143,7 +156,13 @@ impl Expression for Node {
         println!("Evaluating ExpressionNode {self:?}");
         match self {
             Self::Literal(v) => Some(Self::Literal(v.clone())),
-            Self::Binary(b) => b.eval(),
+            Self::Binary {
+                operand_a,
+                operand_b,
+                operator,
+            } => operand_a
+                .eval()
+                .and_then(|a| operand_b.eval().and_then(|b| operator.identity()(a, b))),
             Self::Unary(u) => u.eval(),
             Self::Grouping(a) => a.eval().map(Node::Literal),
         }
@@ -158,7 +177,9 @@ impl Expression for Node {
 }
 impl Node {
     pub fn binary(b: impl Into<BinaryExpression<Node, Node, Node>>) -> Self {
-        Self::Binary(Box::new(b.into()))
+        let b: BinaryExpression<Node, Node, Node> = b.into();
+        b.into()
+        // Self::Binary(Box::new(b.into()))
     }
     pub fn plus(a: impl Into<Node>, b: impl Into<Node>) -> Self {
         ArithmeticOperator::Plus.express(a.into(), b.into()).into()
