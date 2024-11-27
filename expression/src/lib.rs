@@ -114,7 +114,6 @@ where
 }
 mod literal;
 mod unary;
-use unary::UnaryExpression;
 pub use unary::{UnaryNodeOperator, UnaryOperator};
 pub trait OperatorNode: fmt::Debug {
     type Output: Expression;
@@ -124,8 +123,8 @@ use binary::{ArithmeticOperator, BinaryExpression, BinaryOperator};
 impl Add for Node {
     type Output = Option<Node>;
     fn add(self, rhs: Self) -> Self::Output {
+        trace!("Adding literal {self:?} to expression {rhs:?}");
         if let Node::Literal(v) = self {
-            trace!("Adding literal {v:?} to expression {rhs:?}");
             v.add(rhs)
         } else {
             self.eval().and_then(|a| a.add(rhs))
@@ -211,49 +210,45 @@ pub enum Node {
 impl fmt::Debug for Node {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Literal(v) => f.debug_tuple("LiteralExpression").field(v).finish(),
+            Self::Literal(v) => f.write_fmt(format_args!("{v:?}")),
             Self::Grouping(e) => f.debug_tuple("GroupingExpression").field(e).finish(),
-            Self::Unary { operand, operator } => f
-                .debug_tuple("Unary")
-                .field(&operator)
-                .field(&operand)
-                .finish(),
+            Self::Unary { operand, operator } => {
+                f.write_fmt(format_args!("{:?}{:?}", operand, operator))
+            }
             Self::Binary {
                 operand_a,
                 operand_b,
                 operator,
-            } => f
-                .debug_struct("Binary")
-                .field("A", &operand_a)
-                .field("B", &operand_b)
-                .field("Operator", &operator)
-                .finish(),
+            } => f.write_fmt(format_args!(
+                "{:?} {:?} {:?}",
+                operand_a, operator, operand_b
+            )),
         }
     }
 }
 impl Expression for Node {
     type Output = literal::Value;
     fn eval(&self) -> Option<Self::Output> {
-        trace!("Evaluating Node {self:?}");
+        // trace!("Evaluating Node {self:?}");
         match self {
             Self::Grouping(a) => a.eval().map(Node::Literal),
             Self::Literal(v) => {
-                debug!("Evaluated node to literal {v:?}");
+                // debug!("Evaluated node to literal {v:?}");
                 Some(Self::Literal(v.clone()))
             }
-            Self::Unary { operand, operator } => match operand.as_ref() {
-                Node::Literal(v) => {
-                    debug!("Evaluating {operator:?} of value {v:?}");
-                    operator.identity()(v.clone())
+            Self::Unary { operand, operator } => {
+                debug!("Evaluating unary-node {self:?}");
+                match operand.as_ref() {
+                    Node::Literal(v) => operator.identity()(v.clone()),
+                    other => other.eval().and_then(operator.identity()),
                 }
-                other => other.eval().and_then(operator.identity()),
-            },
+            }
             Self::Binary {
                 operand_a,
                 operand_b,
                 operator,
             } => {
-                debug!("Evaluating {operand_a:?} {operator:?} {operand_b:?}");
+                debug!("Evaluating binary-node {self:?}");
                 match operand_a.as_ref() {
                     Node::Literal(a) => operand_b.as_ref().eval().zip(Some(a.clone())),
                     other => other

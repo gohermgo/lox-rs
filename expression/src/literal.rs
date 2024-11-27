@@ -82,7 +82,7 @@ impl PartialEq<Node> for Value {
 impl Add for Value {
     type Output = Option<Value>;
     fn add(self, rhs: Self) -> Self::Output {
-        println!("Adding literal {self:?} to literal {rhs:?}");
+        trace!("Adding literal {self:?} to literal {rhs:?}");
         match (self, rhs) {
             (Value::Number(n1), Value::Number(n2)) => Some(Value::Number(n1.add(n2))),
             _ => None,
@@ -92,7 +92,7 @@ impl Add for Value {
 impl Add<Node> for Value {
     type Output = Option<Node>;
     fn add(self, rhs: Node) -> Self::Output {
-        println!("Adding literal {self:?} to expression {rhs:?}");
+        trace!("Adding literal {self:?} to expression {rhs:?}");
         rhs.eval().and_then(|rhs| self.add(rhs)).map(Node::Literal)
     }
 }

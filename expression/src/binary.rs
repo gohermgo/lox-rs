@@ -31,7 +31,6 @@ pub trait BinaryOperator: OperatorNode {
         }
     }
 }
-#[derive(Debug)]
 pub struct BinaryExpression<A, B, Output>
 where
     A: Expression,
@@ -41,6 +40,19 @@ where
     operand_a: A,
     operand_b: B,
     operator: Box<dyn BinaryOperator<A = A, B = B, Output = Output>>,
+}
+impl<A, B, Output> fmt::Debug for BinaryExpression<A, B, Output>
+where
+    A: Expression + fmt::Debug,
+    B: Expression + fmt::Debug,
+    Output: Expression + fmt::Debug,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_fmt(format_args!(
+            "{:?} {:?} {:?}",
+            self.operand_a, self.operator, self.operand_b
+        ))
+    }
 }
 impl From<BinaryExpression<Node, Node, Node>> for Node {
     fn from(value: BinaryExpression<Node, Node, Node>) -> Self {
@@ -69,12 +81,21 @@ where
         })
     }
 }
-#[derive(Debug)]
 pub enum ArithmeticOperator {
     Plus,
     Minus,
     Divides,
     Times,
+}
+impl fmt::Debug for ArithmeticOperator {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ArithmeticOperator::Plus => f.write_str("+"),
+            ArithmeticOperator::Minus => f.write_str("-"),
+            ArithmeticOperator::Divides => f.write_str("/"),
+            ArithmeticOperator::Times => f.write_str("x"),
+        }
+    }
 }
 impl OperatorNode for ArithmeticOperator {
     type Output = Node;
@@ -135,10 +156,17 @@ mod arithmetic_op_tests {
             .is_some_and(|l| l.eq(&5.0.into())));
     }
 }
-#[derive(Debug)]
 pub enum EqualityOperator {
     Eq,
     Ne,
+}
+impl fmt::Debug for EqualityOperator {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            EqualityOperator::Eq => f.write_str("=="),
+            EqualityOperator::Ne => f.write_str("!="),
+        }
+    }
 }
 impl OperatorNode for EqualityOperator {
     type Output = Node;
@@ -212,10 +240,17 @@ mod equality_operator_node_tests {
             .is_some_and(std::convert::identity))
     }
 }
-#[derive(Debug)]
 pub enum OrderingOperatorNode {
     Lt { equal: bool },
     Gt { equal: bool },
+}
+impl fmt::Debug for OrderingOperatorNode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            OrderingOperatorNode::Lt { equal } => f.write_str(if *equal { "<=" } else { "<" }),
+            OrderingOperatorNode::Gt { equal } => f.write_str(if *equal { ">=" } else { ">" }),
+        }
+    }
 }
 impl OperatorNode for OrderingOperatorNode {
     type Output = Node;

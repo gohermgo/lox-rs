@@ -20,10 +20,18 @@ pub trait UnaryNodeOperator: OperatorNode {
         }
     }
 }
-#[derive(Debug)]
 pub enum UnaryOperator {
     Not,
     Neg,
+}
+impl fmt::Debug for UnaryOperator {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(if matches!(self, UnaryOperator::Not) {
+            "!"
+        } else {
+            "-"
+        })
+    }
 }
 impl OperatorNode for UnaryOperator {
     type Output = Node;
@@ -37,7 +45,6 @@ impl UnaryNodeOperator for UnaryOperator {
         }
     }
 }
-#[derive(Debug)]
 pub struct UnaryExpression<T, Output>
 where
     T: Expression,
@@ -45,6 +52,15 @@ where
 {
     operand: T,
     operator: Box<dyn UnaryNodeOperator<A = T, Output = Output>>,
+}
+impl<T, Output> fmt::Debug for UnaryExpression<T, Output>
+where
+    T: Expression + fmt::Debug,
+    Output: Expression + fmt::Debug,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_fmt(format_args!("{:?}{:?}", self.operator, self.operand))
+    }
 }
 impl From<UnaryExpression<Node, Node>> for Node {
     fn from(value: UnaryExpression<Node, Node>) -> Self {

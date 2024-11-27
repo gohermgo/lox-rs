@@ -218,23 +218,7 @@ impl<'a> TryFrom<&'a char> for TokenCharacter {
             c if c.is_alphabetic() => Ok(TokenCharacter::Delimiter(DelimiterType::Literal(
                 LiteralType::Identifier,
             ))),
-            // 'o' if self.source.r#match('r')
-            //     && self.source.peek_next().is_some_and(|c| c.is_whitespace()) =>
-            // {
-            //     self.source.make_token(TokenType::Or, None)
-            // }
-            unexpected => {
-                // eprintln!(
-                //     "{} Unexpected character: {}",
-                //     self.source
-                //         .indices
-                //         .line
-                //         .load(std::sync::atomic::Ordering::Acquire),
-                //     unexpected
-                // );
-                // None
-                Err(Unexpected(unexpected))
-            }
+            unexpected => Err(Unexpected(unexpected)),
         }
     }
 }
@@ -242,12 +226,17 @@ pub trait PrimaryLiteral: Literal {
     fn to_literal_value(&self) -> LiteralValue;
 }
 pub trait Literal: fmt::Display {}
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct StringValue(pub String);
 impl ops::Deref for StringValue {
     type Target = String;
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+impl fmt::Debug for StringValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_fmt(format_args!("{:?}", self.0))
     }
 }
 impl From<&str> for StringValue {
