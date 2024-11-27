@@ -1,4 +1,4 @@
-use crate::{literal::Value, Expression, Node, OperatorNode};
+use crate::{debug, literal::Value, Expression, Node, OperatorNode};
 use core::{
     fmt,
     ops::{Add, Div, Mul, Sub},
@@ -59,6 +59,7 @@ where
 {
     type Output = Out;
     fn eval(&self) -> Option<Self::Output> {
+        debug!("Evaluating {self:?}");
         self.operand_a.eval().and_then(|a| {
             self.operand_b.eval().and_then(|b| {
                 let res = self.operator.identity()(a, b);

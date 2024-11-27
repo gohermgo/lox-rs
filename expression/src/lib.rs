@@ -1,5 +1,72 @@
 use core::fmt;
-use std::ops::{Add, Div, Mul, Neg, Not, Sub};
+use std::{
+    any,
+    ops::{Add, Div, Mul, Neg, Not, Sub},
+};
+#[cfg(test)]
+mod test_log {
+    pub(crate) fn log_tag(tag: impl core::fmt::Display) {
+        print!("[{tag:5}]")
+    }
+    pub(crate) fn log_string_with_tag(tag: &str, s: impl core::fmt::Display) {
+        log_tag(tag);
+        println!(" {s}")
+    }
+    pub(crate) fn log_args_with_tag(tag: &str, args: core::fmt::Arguments) {
+        log_string_with_tag(tag, std::fmt::format(args))
+    }
+    macro_rules! expand {
+        () => {{
+           $crate::test_log::log_tag("");
+        }};
+        ($pre:literal) => {{
+            $crate::test_log::log_tag($pre)
+        }};
+        ($pre:literal, $($arg:tt)*) => {{
+            $crate::test_log::log_args_with_tag($pre, format_args!($($arg)*));
+        }};
+
+    }
+    pub(crate) use expand;
+    #[macro_export]
+    macro_rules! warn {
+        () => {
+            $crate::test_log::expand!("WARN")
+        };
+        ($($arg:tt)*) => {
+            $crate::test_log::expand!("WARN", $($arg)*);
+        };
+    }
+    #[macro_export]
+    macro_rules! info {
+        ($($arg:tt)*) => {
+            $crate::test_log::expand!("INFO", $($arg)*);
+        };
+    }
+    #[macro_export]
+    macro_rules! trace {
+        () => {
+            $crate::test_log::expand!("TRACE")
+        };
+        ($($arg:tt)*) => {
+            $crate::test_log::expand!("TRACE", $($arg)*);
+        };
+    }
+    #[macro_export]
+    macro_rules! debug {
+        ($($arg:tt)+) => {
+            $crate::test_log::expand!($("DEBUG", $arg)+);
+        };
+    }
+    #[macro_export]
+    macro_rules! error {
+        ($($arg:tt)+) => {
+            $crate::test_log::expand!($("ERROR", $arg)+);
+        };
+    }
+}
+#[cfg(not(test))]
+use log::{debug, error, info, trace, warn};
 pub trait Expression {
     type Output;
     fn eval(&self) -> Option<Self::Output>;
@@ -11,13 +78,23 @@ where
     type Output = T;
     fn eval(&self) -> Option<Self::Output> {
         let Some(ref val) = self else {
+            warn!("Option-expression of {} was empty", any::type_name::<T>());
             return None;
         };
-
         Some(*val)
     }
 }
 impl<T> Expression for Box<T>
+where
+    T: Expression,
+{
+    type Output = <T as Expression>::Output;
+    fn eval(&self) -> Option<Self::Output> {
+        trace!("Evaluating boxed {}", any::type_name::<T>());
+        T::eval(self)
+    }
+}
+impl<T> Expression for &Box<T>
 where
     T: Expression,
 {
@@ -47,14 +124,11 @@ use binary::{ArithmeticOperator, BinaryExpression, BinaryOperator};
 impl Add for Node {
     type Output = Option<Node>;
     fn add(self, rhs: Self) -> Self::Output {
-        println!("Adding expression {self:?} to expression {rhs:?}");
         if let Node::Literal(v) = self {
+            trace!("Adding literal {v:?} to expression {rhs:?}");
             v.add(rhs)
         } else {
             self.eval().and_then(|a| a.add(rhs))
-            // self.eval()
-            //     .map(Node::Literal)
-            //     .map(|a| ArithmeticOperator::Plus.express(a, rhs).into())
         }
     }
 }
@@ -123,7 +197,10 @@ impl PartialEq for Node {
 }
 pub enum Node {
     Literal(literal::Value),
-    Unary(Box<UnaryExpression<Node, Node>>),
+    Unary {
+        operand: Box<Node>,
+        operator: Box<dyn UnaryNodeOperator<A = Node, Output = Node>>,
+    },
     Binary {
         operand_a: Box<Node>,
         operand_b: Box<Node>,
@@ -135,7 +212,12 @@ impl fmt::Debug for Node {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Literal(v) => f.debug_tuple("LiteralExpression").field(v).finish(),
-            Self::Unary(u) => f.write_fmt(format_args!("{u:?}")),
+            Self::Grouping(e) => f.debug_tuple("GroupingExpression").field(e).finish(),
+            Self::Unary { operand, operator } => f
+                .debug_tuple("Unary")
+                .field(&operator)
+                .field(&operand)
+                .finish(),
             Self::Binary {
                 operand_a,
                 operand_b,
@@ -146,32 +228,50 @@ impl fmt::Debug for Node {
                 .field("B", &operand_b)
                 .field("Operator", &operator)
                 .finish(),
-            Self::Grouping(e) => f.debug_tuple("GroupingExpression").field(e).finish(),
         }
     }
 }
 impl Expression for Node {
     type Output = literal::Value;
     fn eval(&self) -> Option<Self::Output> {
-        println!("Evaluating ExpressionNode {self:?}");
+        trace!("Evaluating Node {self:?}");
         match self {
-            Self::Literal(v) => Some(Self::Literal(v.clone())),
+            Self::Grouping(a) => a.eval().map(Node::Literal),
+            Self::Literal(v) => {
+                debug!("Evaluated node to literal {v:?}");
+                Some(Self::Literal(v.clone()))
+            }
+            Self::Unary { operand, operator } => match operand.as_ref() {
+                Node::Literal(v) => {
+                    debug!("Evaluating {operator:?} of value {v:?}");
+                    operator.identity()(v.clone())
+                }
+                other => other.eval().and_then(operator.identity()),
+            },
             Self::Binary {
                 operand_a,
                 operand_b,
                 operator,
-            } => operand_a
-                .eval()
-                .and_then(|a| operand_b.eval().and_then(|b| operator.identity()(a, b))),
-            Self::Unary(u) => u.eval(),
-            Self::Grouping(a) => a.eval().map(Node::Literal),
+            } => {
+                debug!("Evaluating {operand_a:?} {operator:?} {operand_b:?}");
+                match operand_a.as_ref() {
+                    Node::Literal(a) => operand_b.as_ref().eval().zip(Some(a.clone())),
+                    other => other
+                        .eval()
+                        .and_then(|a| operand_b.as_ref().eval().map(|b| (a, b))),
+                }
+                .and_then(|(a, b)| operator.identity()(a, b))
+            }
         }
         .and_then(|node| match node {
             Node::Literal(v) => {
-                println!("Result is {v:?}");
+                info!("Result is {v:?}");
                 Some(v)
             }
-            other => other.eval(),
+            other => {
+                debug!("Recursing {other:?}");
+                other.eval()
+            }
         })
     }
 }
@@ -228,13 +328,11 @@ mod expr_node_tests {
 
         #[test]
         fn numbers() {
-            println!("\n===\nnumbers");
             let e = Node::plus(Node::literal_value(1.0), Node::number(2.0)).eval();
             assert_eq!(e, Some(3.0.into()));
         }
         #[test]
         fn exprs() {
-            println!("\n===\nexprs");
             let e = Node::plus(Node::negation(Node::plus(2.0, 3.0)), Node::plus(2.0, 3.0)).eval();
             assert_eq!(e, Some(0.0.into()))
         }

@@ -1,4 +1,4 @@
-use crate::{Expression, Node};
+use crate::{debug, trace, warn, Expression, Node};
 use std::ops::{Add, Div, Mul, Neg, Not, Sub};
 use token::StringValue;
 impl From<f32> for Node {
@@ -11,7 +11,6 @@ impl From<StringValue> for Node {
         Value::from(value).into()
     }
 }
-
 impl From<bool> for Node {
     fn from(value: bool) -> Self {
         Value::from(value).into()
@@ -33,7 +32,10 @@ impl Value {
     pub fn as_bool(&self) -> Option<bool> {
         match self {
             Self::Boolean(b) => Some(*b),
-            _ => None,
+            _ => {
+                warn!("Value::as_bool called on {self:?}");
+                None
+            }
         }
     }
 }
@@ -131,7 +133,7 @@ impl Div<Node> for Value {
 impl Mul for Value {
     type Output = Option<Value>;
     fn mul(self, rhs: Self) -> Self::Output {
-        println!("muling literal {self:?} to literal {rhs:?}");
+        println!("Multiplyng literal {self:?} to literal {rhs:?}");
         match (self, rhs) {
             (Value::Number(n1), Value::Number(n2)) => Some(Value::Number(n1.mul(n2))),
             _ => None,
@@ -141,18 +143,31 @@ impl Mul for Value {
 impl Mul<Node> for Value {
     type Output = Option<Node>;
     fn mul(self, rhs: Node) -> Self::Output {
-        println!("Multiplying literal {self:?} by expression {rhs:?}");
-        rhs.eval().and_then(|rhs| self.mul(rhs)).map(Node::Literal)
+        match rhs {
+            // Short-circuit
+            Node::Literal(rhs) => self.mul(rhs),
+            other => {
+                if let Some(rhs) = other.eval() {
+                    self.mul(rhs)
+                } else {
+                    warn!("Failed to evaluate {other:?} as rhs of Mul");
+                    None
+                }
+            }
+        }
+        .map(Node::Literal)
+        // println!("Multiplying literal {self:?} by expression {rhs:?}");
+        // rhs.eval().and_then(|rhs| self.mul(rhs)).map(Node::Literal)
     }
 }
 impl Neg for Value {
     type Output = Option<f32>;
     fn neg(self) -> Self::Output {
-        println!("Negating literal-expression {self:?}");
-        match self {
-            Self::Number(f) => Some(f.neg()),
-            _ => None,
-        }
+        let Self::Number(v) = self else {
+            warn!("Failed to negate {self:?}");
+            return None;
+        };
+        Some(v.neg())
     }
 }
 impl Not for Value {

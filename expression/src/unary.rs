@@ -1,12 +1,8 @@
-use crate::{literal, Expression, Node, OperatorNode};
+use crate::{literal, trace, Expression, Node, OperatorNode};
 use core::{
     fmt,
     ops::{Neg, Not},
 };
-#[cfg(not(test))]
-use log::trace;
-#[cfg(test)]
-use println as trace;
 pub trait UnaryNodeOperator: OperatorNode {
     type A: Expression;
     fn identity(
@@ -36,11 +32,7 @@ impl UnaryNodeOperator for UnaryOperator {
     type A = Node;
     fn identity(&self) -> Box<dyn Fn(<Box<Node> as Expression>::Output) -> Option<Node>> {
         match self {
-            Self::Not => Box::new(|a| {
-                Some(a.not())
-                    .map(literal::Value::Boolean)
-                    .map(Node::Literal)
-            }),
+            Self::Not => Box::new(|a| Some(literal::Value::Boolean(a.not()).into())),
             Self::Neg => Box::new(|a| a.neg().map(literal::Value::Number).map(Node::Literal)),
         }
     }
@@ -56,7 +48,10 @@ where
 }
 impl From<UnaryExpression<Node, Node>> for Node {
     fn from(value: UnaryExpression<Node, Node>) -> Self {
-        Node::Unary(Box::new(value))
+        Node::Unary {
+            operand: Box::new(value.operand),
+            operator: value.operator,
+        }
     }
 }
 impl<O, Output> Expression for UnaryExpression<O, Output>
@@ -73,3 +68,17 @@ where
         })
     }
 }
+// impl<O, Output> Expression for UnaryExpression<&O, Output>
+// where
+//     O: Expression + fmt::Debug,
+//     Output: Expression + fmt::Debug,
+// {
+//     type Output = Output;
+//     fn eval(&self) -> Option<Self::Output> {
+//         self.operand.eval().and_then(|a| {
+//             let res = self.operator.identity()(a);
+//             trace!("Evaluated {self:?} to {res:?}");
+//             res
+//         })
+//     }
+// }
