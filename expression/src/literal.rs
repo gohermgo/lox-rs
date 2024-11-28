@@ -1,5 +1,5 @@
 use crate::{debug, trace, warn, Expression, Node};
-use std::ops::{Add, Div, Mul, Neg, Not, Sub};
+use std::ops::{self, Add, Div, Mul, Neg, Not, Sub};
 use token::StringValue;
 impl From<f32> for Node {
     fn from(value: f32) -> Self {
@@ -37,6 +37,11 @@ impl Value {
                 None
             }
         }
+    }
+}
+impl<C> From<Value> for ops::ControlFlow<Value, C> {
+    fn from(value: Value) -> Self {
+        ops::ControlFlow::Break(value)
     }
 }
 impl From<Value> for Node {

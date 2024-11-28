@@ -1,7 +1,7 @@
 use core::fmt;
 use std::{
     any,
-    ops::{Add, Div, Mul, Neg, Not, Sub},
+    ops::{self, Add, Deref, Div, Mul, Neg, Not, Sub},
 };
 #[cfg(test)]
 mod test_log {
@@ -84,25 +84,25 @@ where
         Some(*val)
     }
 }
-impl<T> Expression for Box<T>
-where
-    T: Expression,
-{
-    type Output = <T as Expression>::Output;
-    fn eval(&self) -> Option<Self::Output> {
-        trace!("Evaluating boxed {}", any::type_name::<T>());
-        T::eval(self)
-    }
-}
-impl<T> Expression for &Box<T>
-where
-    T: Expression,
-{
-    type Output = <T as Expression>::Output;
-    fn eval(&self) -> Option<Self::Output> {
-        T::eval(self)
-    }
-}
+// impl<T> Expression for Box<T>
+// where
+//     T: Expression,
+// {
+//     type Output = <T as Expression>::Output;
+//     fn eval(&self) -> Option<Self::Output> {
+//         trace!("Evaluating boxed {}", any::type_name::<T>());
+//         T::eval(self)
+//     }
+// }
+// impl<T> Expression for &Box<T>
+// where
+//     T: Expression,
+// {
+//     type Output = <T as Expression>::Output;
+//     fn eval(&self) -> Option<Self::Output> {
+//         T::eval(self)
+//     }
+// }
 impl<T> Expression for Box<dyn Fn() -> T>
 where
     T: Expression,
@@ -121,14 +121,15 @@ pub trait OperatorNode: fmt::Debug {
 pub mod binary;
 use binary::{ArithmeticOperator, BinaryExpression, BinaryOperator};
 impl Add for Node {
-    type Output = Option<Node>;
+    type Output = Node;
     fn add(self, rhs: Self) -> Self::Output {
         trace!("Adding literal {self:?} to expression {rhs:?}");
-        if let Node::Literal(v) = self {
-            v.add(rhs)
-        } else {
-            self.eval().and_then(|a| a.add(rhs))
-        }
+        ArithmeticOperator::Plus.express(self, rhs).into()
+        // if let Node::Literal(v) = self {
+        //     v.add(rhs)
+        // } else {
+        //     self.eval().and_then(|a| a.add(rhs))
+        // }
     }
 }
 impl Sub for Node {
@@ -198,12 +199,15 @@ pub enum Node {
     Literal(literal::Value),
     Unary {
         operand: Box<Node>,
-        operator: Box<dyn UnaryNodeOperator<A = Node, Output = Node>>,
+        operator:
+            Box<dyn UnaryNodeOperator<A = Node, Output = ops::ControlFlow<literal::Value, Node>>>,
     },
     Binary {
         operand_a: Box<Node>,
         operand_b: Box<Node>,
-        operator: Box<dyn BinaryOperator<A = Node, B = Node, Output = Node>>,
+        operator: Box<
+            dyn BinaryOperator<A = Node, B = Node, Output = ops::ControlFlow<literal::Value, Node>>,
+        >,
     },
     Grouping(Box<Node>),
 }
@@ -226,21 +230,103 @@ impl fmt::Debug for Node {
         }
     }
 }
-impl Expression for Node {
+pub trait ExpressionChain {
+    type Output;
+    type Next: ExpressionChain<Output = Self::Output>;
+    fn step(&self) -> Option<ops::ControlFlow<Self::Output, Self::Next>>;
+    #[inline]
+    fn evaluate(&self) -> Option<Self::Output> {
+        match self.step()? {
+            ops::ControlFlow::Continue(c) => c.evaluate(),
+            ops::ControlFlow::Break(b) => Some(b),
+        }
+    }
+}
+impl ExpressionChain for literal::Value {
     type Output = literal::Value;
-    fn eval(&self) -> Option<Self::Output> {
-        // trace!("Evaluating Node {self:?}");
+    type Next = Node;
+    fn step(&self) -> Option<ops::ControlFlow<Self::Output, Self::Next>> {
+        Some(ops::ControlFlow::Break(self.clone()))
+    }
+}
+impl<B, C> ExpressionChain for ops::ControlFlow<B, C>
+where
+    B: Clone,
+    C: Expression,
+    <C as Expression>::Output: ExpressionChain<Output = B>,
+{
+    type Output = B;
+    type Next = <<C as Expression>::Output as ExpressionChain>::Next;
+    fn step(&self) -> Option<ops::ControlFlow<Self::Output, Self::Next>> {
         match self {
-            Self::Grouping(a) => a.eval().map(Node::Literal),
-            Self::Literal(v) => {
-                // debug!("Evaluated node to literal {v:?}");
-                Some(Self::Literal(v.clone()))
+            ops::ControlFlow::Break(b) => Some(ops::ControlFlow::Break(b.clone())),
+            ops::ControlFlow::Continue(c) => c.eval().as_ref().and_then(ExpressionChain::step),
+        }
+    }
+}
+impl ExpressionChain for Node {
+    type Output = literal::Value;
+    type Next = Node;
+    fn step(&self) -> Option<ops::ControlFlow<Self::Output, Self::Next>> {
+        error!("STEPPING");
+        match self {
+            Self::Grouping(n) => n.step(),
+            Self::Unary { operand, operator } => {
+                let value = operand.evaluate()?;
+                operator.identity()(value)
             }
+            Self::Binary {
+                operand_a,
+                operand_b,
+                operator,
+            } => {
+                let a = operand_a.evaluate()?;
+                let b = operand_b.evaluate()?;
+                operator.identity()(a, b)
+            }
+            Self::Literal(v) => v.evaluate().map(ops::ControlFlow::Break),
+        }
+    }
+}
+impl<T, N, E> Expression for E
+where
+    E: ExpressionChain<Output = T, Next = N>,
+    N: ExpressionChain<Output = T, Next = N>,
+{
+    type Output = T;
+    #[inline]
+    fn eval(&self) -> Option<Self::Output> {
+        let next = self.step()?;
+        match next {
+            ops::ControlFlow::Continue(c) => c.evaluate(),
+            ops::ControlFlow::Break(b) => Some(b),
+        }
+    }
+}
+pub trait Evaluate {
+    type Output;
+    type Next: Evaluate<Output = Self::Output>;
+    fn next(&self) -> Option<ops::ControlFlow<Self::Output, Self::Next>>;
+    fn finish(&self) -> Option<Self::Output> {
+        let next = self.next()?;
+        match next {
+            ops::ControlFlow::Continue(next) => next.finish(),
+            ops::ControlFlow::Break(out) => Some(out),
+        }
+    }
+}
+impl Evaluate for Node {
+    type Output = literal::Value;
+    type Next = Node;
+    fn next(&self) -> Option<ops::ControlFlow<Self::Output, Self::Next>> {
+        match self {
+            Self::Grouping(a) => a.next(),
+            Self::Literal(v) => Some(ops::ControlFlow::Break(v.clone())),
             Self::Unary { operand, operator } => {
                 debug!("Evaluating unary-node {self:?}");
                 match operand.as_ref() {
                     Node::Literal(v) => operator.identity()(v.clone()),
-                    other => other.eval().and_then(operator.identity()),
+                    other => other.evaluate().and_then(operator.identity()),
                 }
             }
             Self::Binary {
@@ -250,29 +336,72 @@ impl Expression for Node {
             } => {
                 debug!("Evaluating binary-node {self:?}");
                 match operand_a.as_ref() {
-                    Node::Literal(a) => operand_b.as_ref().eval().zip(Some(a.clone())),
+                    Node::Literal(a) => operand_b.as_ref().evaluate().zip(Some(a.clone())),
                     other => other
-                        .eval()
-                        .and_then(|a| operand_b.as_ref().eval().map(|b| (a, b))),
+                        .evaluate()
+                        .and_then(|a| operand_b.as_ref().evaluate().map(|b| (a, b))),
                 }
                 .and_then(|(a, b)| operator.identity()(a, b))
             }
         }
-        .and_then(|node| match node {
-            Node::Literal(v) => {
-                info!("Result is {v:?}");
-                Some(v)
-            }
-            other => {
-                debug!("Recursing {other:?}");
-                other.eval()
-            }
-        })
     }
 }
 impl Node {
-    pub fn binary(b: impl Into<BinaryExpression<Node, Node, Node>>) -> Self {
-        let b: BinaryExpression<Node, Node, Node> = b.into();
+    //     fn evaluate(&self) -> Option<literal::Value> {
+    //         // trace!("Evaluating Node {self:?}");
+    //         match self {
+    //             Self::Grouping(a) => a.eval(),
+    //             Self::Literal(v) => {
+    //                 // debug!("Evaluated node to literal {v:?}");
+    //                 Some(v.clone())
+    //             }
+    //             Self::Unary { operand, operator } => {
+    //                 debug!("Evaluating unary-node {self:?}");
+    //                 match operand.as_ref() {
+    //                     Node::Literal(v) => operator.identity()(v.clone()),
+    //                     other => other.eval().and_then(operator.identity()),
+    //                 }
+    //                 .and_then(|value| match value {
+    //                     ops::ControlFlow::Continue(c) => c.evaluate(),
+    //                     ops::ControlFlow::Break(b) => Some(b),
+    //                 })
+    //             }
+    //             Self::Binary {
+    //                 operand_a,
+    //                 operand_b,
+    //                 operator,
+    //             } => {
+    //                 debug!("Evaluating binary-node {self:?}");
+    //                 match operand_a.as_ref() {
+    //                     Node::Literal(a) => operand_b.as_ref().eval().zip(Some(a.clone())),
+    //                     other => other
+    //                         .eval()
+    //                         .and_then(|a| operand_b.as_ref().eval().map(|b| (a, b))),
+    //                 }
+    //                 .and_then(|(a, b)| operator.identity()(a, b))
+    //                 .and_then(|value| match value {
+    //                     ops::ControlFlow::Continue(c) => c.evaluate(),
+    //                     ops::ControlFlow::Break(b) => Some(b),
+    //                 })
+    //             }
+    //         }
+    //         // .and_then(|node| match node {
+    //         //     Node::Literal(v) => {
+    //         //         info!("Result is {v:?}");
+    //         //         Some(v)
+    //         //     }
+    //         //     other => {
+    //         //         debug!("Recursing {other:?}");
+    //         //         other.eval()
+    //         //     }
+    //         // })
+    //     }
+}
+impl Node {
+    pub fn binary(
+        b: impl Into<BinaryExpression<Node, Node, ops::ControlFlow<literal::Value, Node>>>,
+    ) -> Self {
+        let b: BinaryExpression<Node, Node, ops::ControlFlow<literal::Value, Node>> = b.into();
         b.into()
         // Self::Binary(Box::new(b.into()))
     }
@@ -313,6 +442,11 @@ impl Node {
     pub fn as_bool(&self) -> Option<bool> {
         self.as_literal().and_then(literal::Value::as_bool)
     }
+    pub fn added_to_expression(self, rhs_expr: impl Into<Node>) -> Self {
+        ArithmeticOperator::Plus
+            .express(self, rhs_expr.into())
+            .into()
+    }
 }
 
 #[cfg(test)]
@@ -320,16 +454,25 @@ mod expr_node_tests {
     use super::*;
     mod add_tests {
         use super::*;
-
         #[test]
         fn numbers() {
-            let e = Node::plus(Node::literal_value(1.0), Node::number(2.0)).eval();
+            let e = Node::plus(Node::literal_value(1.0), Node::number(2.0)).evaluate();
             assert_eq!(e, Some(3.0.into()));
         }
         #[test]
         fn exprs() {
-            let e = Node::plus(Node::negation(Node::plus(2.0, 3.0)), Node::plus(2.0, 3.0)).eval();
+            let e =
+                Node::plus(Node::negation(Node::plus(2.0, 3.0)), Node::plus(2.0, 3.0)).evaluate();
             assert_eq!(e, Some(0.0.into()))
         }
+        #[test]
+        fn adding_nodes() {
+            let a: Node = 1.0.into();
+            let b: Node = 2.0.into();
+            let c = a + b;
+            debug!("Node C: {c:?}");
+            assert_eq!(c.evaluate(), Some(3.0.into()))
+        }
     }
+    mod sub_tests {}
 }

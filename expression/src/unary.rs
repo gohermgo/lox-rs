@@ -3,6 +3,7 @@ use core::{
     fmt,
     ops::{Neg, Not},
 };
+use std::ops;
 pub trait UnaryNodeOperator: OperatorNode {
     type A: Expression;
     fn identity(
@@ -34,14 +35,21 @@ impl fmt::Debug for UnaryOperator {
     }
 }
 impl OperatorNode for UnaryOperator {
-    type Output = Node;
+    type Output = ops::ControlFlow<literal::Value, Node>;
 }
 impl UnaryNodeOperator for UnaryOperator {
     type A = Node;
-    fn identity(&self) -> Box<dyn Fn(<Box<Node> as Expression>::Output) -> Option<Node>> {
+    fn identity(
+        &self,
+    ) -> Box<dyn Fn(<Self::A as Expression>::Output) -> Option<<Self as OperatorNode>::Output>>
+    {
         match self {
             Self::Not => Box::new(|a| Some(literal::Value::Boolean(a.not()).into())),
-            Self::Neg => Box::new(|a| a.neg().map(literal::Value::Number).map(Node::Literal)),
+            Self::Neg => Box::new(|a| {
+                a.neg()
+                    .map(literal::Value::Number)
+                    .map(ops::ControlFlow::Break)
+            }),
         }
     }
 }
@@ -62,8 +70,8 @@ where
         f.write_fmt(format_args!("{:?}{:?}", self.operator, self.operand))
     }
 }
-impl From<UnaryExpression<Node, Node>> for Node {
-    fn from(value: UnaryExpression<Node, Node>) -> Self {
+impl From<UnaryExpression<Node, ops::ControlFlow<literal::Value, Node>>> for Node {
+    fn from(value: UnaryExpression<Node, ops::ControlFlow<literal::Value, Node>>) -> Self {
         Node::Unary {
             operand: Box::new(value.operand),
             operator: value.operator,
@@ -94,7 +102,7 @@ mod tests {
         fn number() {
             assert_eq!(
                 UnaryOperator::Neg.express(1.0.into()).eval(),
-                Some(Node::from(-1.0))
+                Some(ops::ControlFlow::Break(literal::Value::from(-1.0)))
             )
         }
         #[test]
@@ -110,21 +118,17 @@ mod tests {
         use super::*;
         #[test]
         fn true_to_false() {
-            assert!(UnaryOperator::Not
-                .express(true.into())
-                .eval()
-                .as_ref()
-                .and_then(Node::as_bool)
-                .is_some_and(|v| !v));
+            assert_eq!(
+                UnaryOperator::Not.express(true.into()).eval(),
+                Some(ops::ControlFlow::Break(false.into()))
+            );
         }
         #[test]
         fn false_to_true() {
-            assert!(UnaryOperator::Not
-                .express(false.into())
-                .eval()
-                .as_ref()
-                .and_then(Node::as_bool)
-                .is_some_and(std::convert::identity));
+            assert_eq!(
+                UnaryOperator::Not.express(false.into()).eval(),
+                Some(ops::ControlFlow::Break(true.into()))
+            );
         }
     }
 }

@@ -3,6 +3,7 @@ use core::{
     fmt,
     ops::{Add, Div, Mul, Sub},
 };
+use std::ops;
 type BinaryMap<A, B, Output> =
     dyn Fn(<A as Expression>::Output, <B as Expression>::Output) -> Option<Output>;
 pub trait BinaryOperator: OperatorNode {
@@ -54,8 +55,8 @@ where
         ))
     }
 }
-impl From<BinaryExpression<Node, Node, Node>> for Node {
-    fn from(value: BinaryExpression<Node, Node, Node>) -> Self {
+impl From<BinaryExpression<Node, Node, ops::ControlFlow<Value, Node>>> for Node {
+    fn from(value: BinaryExpression<Node, Node, ops::ControlFlow<Value, Node>>) -> Self {
         Node::Binary {
             operand_a: Box::new(value.operand_a),
             operand_b: Box::new(value.operand_b),
@@ -98,7 +99,7 @@ impl fmt::Debug for ArithmeticOperator {
     }
 }
 impl OperatorNode for ArithmeticOperator {
-    type Output = Node;
+    type Output = ops::ControlFlow<Value, Node>;
 }
 impl Add<Value> for Node {
     type Output = Option<Value>;
@@ -112,13 +113,17 @@ impl BinaryOperator for ArithmeticOperator {
     type B = Node;
     fn identity(
         &self,
-    ) -> Box<dyn Fn(<Node as Expression>::Output, <Node as Expression>::Output) -> Option<Node>>
-    {
+    ) -> Box<
+        dyn Fn(
+            <Node as Expression>::Output,
+            <Node as Expression>::Output,
+        ) -> Option<ops::ControlFlow<Value, Node>>,
+    > {
         match self {
-            Self::Plus => Box::new(|a, b| a.add(b).map(Node::Literal)),
-            Self::Minus => Box::new(|a, b| a.sub(b).map(Node::Literal)),
-            Self::Divides => Box::new(|a, b| a.div(b).map(Node::Literal)),
-            Self::Times => Box::new(|a, b| a.mul(b).map(Node::Literal)),
+            Self::Plus => Box::new(|a, b| a.add(b).map(ops::ControlFlow::Break)),
+            Self::Minus => Box::new(|a, b| a.sub(b).map(ops::ControlFlow::Break)),
+            Self::Divides => Box::new(|a, b| a.div(b).map(ops::ControlFlow::Break)),
+            Self::Times => Box::new(|a, b| a.mul(b).map(ops::ControlFlow::Break)),
         }
     }
 }
@@ -131,7 +136,7 @@ mod arithmetic_op_tests {
             ArithmeticOperator::Plus
                 .express(15.0.into(), 5.0.into())
                 .eval(),
-            Some(20.0.into())
+            Some(ops::ControlFlow::Break(20.0.into()))
         )
     }
     #[test]
@@ -140,7 +145,7 @@ mod arithmetic_op_tests {
             ArithmeticOperator::Divides
                 .express(15.0.into(), 5.0.into())
                 .eval(),
-            Some(3.0.into())
+            Some(ops::ControlFlow::Break(3.0.into()))
         )
     }
     #[test]
@@ -153,7 +158,7 @@ mod arithmetic_op_tests {
                 4.0.into(),
             )
             .eval()
-            .is_some_and(|l| l.eq(&5.0.into())));
+            .is_some_and(|l| l.eq(&ops::ControlFlow::Break(5.0.into()))));
     }
 }
 pub enum EqualityOperator {
