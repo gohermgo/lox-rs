@@ -1,7 +1,7 @@
 use core::fmt;
 use std::{
     any,
-    ops::{self, Add, Deref, Div, Mul, Neg, Not, Sub},
+    ops::{self, Add, Div, Mul, Neg, Not, Sub},
 };
 #[cfg(test)]
 mod test_log {
@@ -65,6 +65,7 @@ mod test_log {
         };
     }
 }
+#[allow(unused_imports)]
 #[cfg(not(test))]
 use log::{debug, error, info, trace, warn};
 pub trait Expression {
@@ -84,25 +85,6 @@ where
         Some(*val)
     }
 }
-// impl<T> Expression for Box<T>
-// where
-//     T: Expression,
-// {
-//     type Output = <T as Expression>::Output;
-//     fn eval(&self) -> Option<Self::Output> {
-//         trace!("Evaluating boxed {}", any::type_name::<T>());
-//         T::eval(self)
-//     }
-// }
-// impl<T> Expression for &Box<T>
-// where
-//     T: Expression,
-// {
-//     type Output = <T as Expression>::Output;
-//     fn eval(&self) -> Option<Self::Output> {
-//         T::eval(self)
-//     }
-// }
 impl<T> Expression for Box<dyn Fn() -> T>
 where
     T: Expression,
@@ -230,9 +212,9 @@ impl fmt::Debug for Node {
         }
     }
 }
-pub trait ExpressionChain {
+pub trait ExpressionStep {
     type Output;
-    type Next: ExpressionChain<Output = Self::Output>;
+    type Next: ExpressionStep<Output = Self::Output>;
     fn step(&self) -> Option<ops::ControlFlow<Self::Output, Self::Next>>;
     #[inline]
     fn evaluate(&self) -> Option<Self::Output> {
@@ -242,29 +224,29 @@ pub trait ExpressionChain {
         }
     }
 }
-impl ExpressionChain for literal::Value {
+impl ExpressionStep for literal::Value {
     type Output = literal::Value;
     type Next = Node;
     fn step(&self) -> Option<ops::ControlFlow<Self::Output, Self::Next>> {
         Some(ops::ControlFlow::Break(self.clone()))
     }
 }
-impl<B, C> ExpressionChain for ops::ControlFlow<B, C>
+impl<B, C> ExpressionStep for ops::ControlFlow<B, C>
 where
     B: Clone,
     C: Expression,
-    <C as Expression>::Output: ExpressionChain<Output = B>,
+    <C as Expression>::Output: ExpressionStep<Output = B>,
 {
     type Output = B;
-    type Next = <<C as Expression>::Output as ExpressionChain>::Next;
+    type Next = <<C as Expression>::Output as ExpressionStep>::Next;
     fn step(&self) -> Option<ops::ControlFlow<Self::Output, Self::Next>> {
         match self {
             ops::ControlFlow::Break(b) => Some(ops::ControlFlow::Break(b.clone())),
-            ops::ControlFlow::Continue(c) => c.eval().as_ref().and_then(ExpressionChain::step),
+            ops::ControlFlow::Continue(c) => c.eval().as_ref().and_then(ExpressionStep::step),
         }
     }
 }
-impl ExpressionChain for Node {
+impl ExpressionStep for Node {
     type Output = literal::Value;
     type Next = Node;
     fn step(&self) -> Option<ops::ControlFlow<Self::Output, Self::Next>> {
@@ -290,8 +272,8 @@ impl ExpressionChain for Node {
 }
 impl<T, N, E> Expression for E
 where
-    E: ExpressionChain<Output = T, Next = N>,
-    N: ExpressionChain<Output = T, Next = N>,
+    E: ExpressionStep<Output = T, Next = N>,
+    N: ExpressionStep<Output = T, Next = N>,
 {
     type Output = T;
     #[inline]
